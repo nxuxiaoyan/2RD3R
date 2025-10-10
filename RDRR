@@ -1,0 +1,82 @@
+import concurrent.futures
+import numpy as np
+from Data_generate import Data_generate
+from B_pen import B_pen
+np.set_printoptions(suppress=True)
+
+def RDRR(X_all, Y_all, m, eta, lam, tau_1, tau_2, kappa_1, kappa_2):
+    
+    B_T = B_pen (X_all, Y_all, eta, lam, tau_1, tau_2)
+    num_workers = m
+
+    def softThres(x, eta, lam, tol=1e-4):
+        for i in range(len(x)):
+            x_i = x[i]
+            if x_i > eta * lam:
+                x[i] = x_i - eta * lam
+            else:
+                x[i] = 0
+        x[x < tol] = 0
+        return x
+        
+    def svdThres(C, eta, lam):
+        U, S, VT = np.linalg.svd(C, full_matrices = False) 
+        s = softThres(S, eta, lam)
+        s = np.diag(s)
+        C = U @ s @ VT
+        return C
+    
+
+    def cut_off(X, trun_para):
+        X_truncated = X.copy()
+        for i in range(len(X_truncated)):
+            x_i_norm = np.linalg.norm(X_truncated[i], ord=4)
+            if x_i_norm > trun_para:
+               X_truncated[i] = (trun_para / x_i_norm) * X_truncated[i]
+        return X_truncated
+    
+     
+    def compute_gradient(X_block, Y_block, S):
+        gradient =  (X_block.T @ X_block @ S - X_block.T @ Y_block) / len(X_block)
+        return gradient
+        
+    
+    def parallel_gradient_compute(X, Y, B_T, num_workers):
+        n_samples = X.shape[0]
+        chunk_size = n_samples // num_workers
+    
+        chunks = [(X[i:i+chunk_size], Y[i:i+chunk_size]) for i in range(0, n_samples, chunk_size)]
+    
+        with concurrent.futures.ThreadPoolExecutor(max_workers=num_workers) as executor:
+          futures = [executor.submit(compute_gradient, X_blk, Y_blk, B_T) for X_blk, Y_blk in chunks]
+          gradients = [f.result() for f in futures]
+    
+        total_gradient = np.mean(gradients, axis=0)
+        return total_gradient
+    
+    n = int(len(X_all)/num_workers)
+    X_central = X_all[0:n]
+    Y_central = Y_all[0:n]
+    X_central_shrink = cut_off(X_central, kappa_1)
+    Y_central_shrink = cut_off(Y_central, kappa_2)
+    X_all_shrink = cut_off(X_all, tau_1)
+    Y_all_shrink = cut_off(Y_all, tau_2)
+    
+    for t in range(10):
+        global_gradi_mean = parallel_gradient_compute(X_all_shrink, Y_all_shrink, B_T, num_workers)
+        local_gradi_T = compute_gradient(X_central_shrink, Y_central_shrink, B_T)
+
+        B_new = B_T
+        for j in range(200):
+            B_old = B_new
+            local_gradi_K = compute_gradient(X_central_shrink, Y_central_shrink, B_old)
+            A = B_old - eta * (local_gradi_K - local_gradi_T + global_gradi_mean)
+            B_new = svdThres(A, eta, lam)
+            delta_B = np.linalg.norm(B_new - B_old, 'fro')
+            if delta_B < 1e-4:
+                #print(j)
+                break
+        B_T = B_new
+
+    return B_T
+
