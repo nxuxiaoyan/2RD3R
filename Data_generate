@@ -1,0 +1,59 @@
+import numpy as np
+np.set_printoptions(suppress=True)
+
+def Data_generate(n, p, q, r, scenario):
+    
+    def generate_B_star(p, q, r):
+        U_Gamma = np.random.uniform(0, 1, (p, r))
+        V_Gamma = np.random.uniform(0, 1, (r, q))
+        B_star = np.dot(U_Gamma, V_Gamma)
+        return B_star
+    
+    def generate_sigma_matrix(p):
+        Sigma = np.zeros((p, p))
+        for i in range(0, p):
+            for j in range(0, p):
+                Sigma[i, j] = 0.5 ** abs(i - j)
+        return Sigma
+
+    def generate_X(n, p):
+        Sigma = generate_sigma_matrix(p)
+        X = np.random.multivariate_normal(mean=np.zeros(p), cov=Sigma, size=n)
+        return X
+
+
+    def generate_data(B, n, scenario):
+        p = np.shape(B)[0]; q = np.shape(B)[1]
+        X = generate_X(n, p)
+
+        if scenario == 'scenario1':
+            E = np.random.normal(0, np.sqrt(1), size=(n, q))
+            Y = X @ B + E
+
+        elif scenario == 'scenario2':
+            E = np.sqrt(2) * np.random.standard_t(df=4, size=(n, q))
+            Y = X @ B + E
+
+        elif scenario == 'scenario3':
+            E = np.random.standard_cauchy(size=(n, q))/128
+            Y = X @ B + E
+        
+        elif scenario == 'scenario4':
+            E = np.random.normal(0, np.sqrt(20), size=(n, q))
+            X =  np.sqrt(2) * np.random.standard_t(df=4, size=(n, p))
+            Y = X @ B + E
+
+        elif scenario == 'scenario5':
+            outlier_indices = np.random.choice(range(n), size=int(0.1 * n), replace=False)
+            X[outlier_indices] = np.random.normal(0, np.sqrt(30), size=(len(outlier_indices), p))
+            E = np.random.normal(0, np.sqrt(1), size=(n, q))
+            Y = X @ B + E
+
+        return X, Y
+    
+    B_star = generate_B_star(p, q, r)
+    X, Y = generate_data(B_star, n, scenario)
+    return B_star, X, Y
+    
+
+    
